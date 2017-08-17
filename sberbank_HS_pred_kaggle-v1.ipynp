@@ -1,0 +1,401 @@
+
+# coding: utf-8
+
+# In[2]:
+
+# Import necessary packages and data
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+get_ipython().magic(u'matplotlib inline')
+
+#pandas-jupyter screen output settings
+pd.set_option('display.height', 1000)
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.width', 1000)
+
+
+# In[303]:
+
+#read file
+filePath=r"E:\Akxay\GLIM\Kaggle\train.csv\train.csv"
+data_train=pd.read_csv(filePath, sep=',')
+data_train.shape
+
+
+# In[231]:
+
+# data = data[((data["build_year"]<2018))&(data["build_year"]>1600) | (data["build_year"].isnull())]
+# data = data[(data["full_sq"]>9 )]
+# data = data[(data["life_sq"] > 7 ) | (data["life_sq"].isnull())] 
+
+
+# In[233]:
+
+data_train.describe().round(2)
+
+
+# In[234]:
+
+cat_train=data_train.select_dtypes(include=['object'])
+cat_train.head()
+
+
+# In[510]:
+
+#count number of NA in each column
+NA_count=data_train.isnull().sum()
+NA_count=pd.DataFrame(NA_count,columns=['count']).sort_values(by="count",axis=0, 
+                                                                  ascending=False, inplace=False, kind='quicksort')
+print NA_count
+
+
+# ### Build data on 6000 observations
+
+# In[240]:
+
+#drop rows which have NA's
+cleaned_data=data_train.dropna()
+cleaned_data.describe().round(2)
+cleaned_data.shape
+
+
+# In[27]:
+
+#encoding
+
+cat_X=cleaned_data.select_dtypes(include=['object'])
+cat_X_temp=cat_X
+num_X=cleaned_data.select_dtypes(include=['float64'])
+int64_X=cleaned_data.select_dtypes(include=['int64'])
+
+print cat_X.shape, num_X.shape, int64_X.shape
+
+#---------------------------------------------------------#
+#label encoder
+from sklearn import preprocessing
+le = preprocessing.LabelEncoder()
+##le.fit(cat_X)
+#le.transform(cat_X) # Encode
+cat_X=cat_X.apply(le.fit_transform)
+
+X_all=pd.merge(cat_X,num_X,right_index=True, left_index=True)
+X_all=pd.merge(X_all,int64_X,right_index=True, left_index=True)
+
+
+# In[28]:
+
+X_all = X_all[((X_all["build_year"]<2018))&(X_all["build_year"]>1600)]
+X_all = X_all[(X_all["full_sq"]>9 )]
+X_all = X_all[(X_all["life_sq"] > 7 )] 
+X_all.shape
+
+
+# In[243]:
+
+#convert build year
+X_all["build_year"] = X_all["build_year"].apply(lambda x : 2017-x)
+
+
+# In[31]:
+
+y = X_all["price_doc"]
+X_all = X_all.drop(["timestamp","price_doc"],1)
+
+
+# In[32]:
+
+###### model
+
+from sklearn import cross_validation
+from sklearn.ensemble import RandomForestRegressor
+
+
+alg=RandomForestRegressor(random_state=1, n_estimators=100,min_samples_split=60,min_samples_leaf=20)
+kf = cross_validation.KFold(X_all.shape[0], n_folds=3, random_state=1)
+scores = cross_validation.cross_val_score(alg, X_all, y, cv=3)
+print (scores.mean())
+
+
+# In[ ]:
+
+# Important features
+alg=RandomForestRegressor(random_state=1, n_estimators=100,min_samples_split=60,min_samples_leaf=20)
+forest = alg.fit(X_all,y)
+# importances = forest.feature_importances_
+# importances
+
+
+# In[248]:
+
+#feature importance
+importances = pd.DataFrame({'feature':X_all.columns,'importance':np.round(forest.feature_importances_,3)})
+importances = importances.sort_values('importance',ascending=False).set_index('feature')
+print importances
+importances.plot.bar()
+
+
+# In[ ]:
+
+### XGBOOST
+# data = data[(data["full_sq"]>9 )]
+# data = data[(data["life_sq"] > 7 ) | (data["life_sq"].isnull())] 
+
+
+# ### Data Cleansing for whole data set
+
+# In[3]:
+
+data_train = pd.read_csv(r"E:\Akxay\GLIM\Kaggle\file_to_impute.csv")
+
+
+# In[4]:
+
+# while imnputing, recheck all the conditions, if not met, fill it with median
+# fill num of rooms with life_sq/15 where 15 is median room size of whole data set
+#1.
+data_train.loc[(data_train["build_year"]>2018) | (data_train["build_year"]<1900),"build_year"] = np.nan
+data_train["build_year"] = data_train["build_year"].apply(lambda x : 2017-x) # execute only once
+
+
+# In[589]:
+
+#data_train[data_train["num_room"].notnull()][["life_sq","num_room"]]
+
+
+# In[6]:
+
+#2.
+data_train.loc[(data_train["max_floor"]<1 ) | (data_train["floor"] > data_train["max_floor"]),"max_floor"] = np.nan
+
+data_train.loc[(data_train["floor"]<1 ) ,"floor"] = np.nan
+
+data_train.loc[data_train["state"] > 4, "state"] = np.nan
+
+
+# In[7]:
+
+data_train = data_train[data_train["full_sq"].notnull()]
+data_train = data_train[(data_train["life_sq"].notnull()) | (data_train["kitch_sq"].notnull())]
+
+
+# In[18]:
+
+pd.set_option('display.float_format', lambda x: '%.3f' % x)
+data_train.describe().round(2)
+
+
+# In[ ]:
+
+
+
+
+# In[11]:
+
+# function to impute kitchen and life sq NA
+def fillNA(row,tofill, fromfill):
+    if pd.isnull(row[tofill]):
+        return row["full_sq"] - row[fromfill]
+    else:
+        return row[tofill]
+data_train["kitch_sq"] = data_train.apply(lambda x: fillNA(x,"kitch_sq","life_sq"), axis=1)
+#data_train[data_train["kitch_sq"]==0].shape
+data_train["life_sq"] = data_train.apply(lambda x: fillNA(x,"life_sq","kitch_sq"), axis=1)
+
+
+# In[12]:
+
+NA_fill_df = data_train.groupby(["sub_area","ecology"]).median().iloc[:,2:10]
+NA_fill_df = NA_fill_df.reset_index()
+NA_fill_df.shape
+
+
+# In[13]:
+
+data_train = data_train.drop(["Unnamed: 0"],1)
+
+
+# In[14]:
+
+data_train = pd.merge(data_train,NA_fill_df, on=["sub_area","ecology"],how="inner")
+
+
+# In[15]:
+
+#function to impute NA
+def fillNA_by_area_median(row,tofill, fromfill):
+    if pd.isnull(row[tofill]):
+        return row[fromfill]
+    else:
+        return row[tofill]
+
+#med_data_df["full_sq_x"] = med_data_df.apply(lambda x: fillNA(x,"full_sq_x","full_sq_y"), axis=1)
+# med_data_df["life_sq_x"] = med_data_df.apply(lambda x: fillNA(x,"life_sq_x","life_sq_y"), axis=1)
+# med_data_df["max_floor_x"] = med_data_df.apply(lambda x: fillNA(x,"max_floor_x","max_floor_y"), axis=1)
+# med_data_df["kitch_sq_x"] = med_data_df.apply(lambda x: fillNA(x,"kitch_sq_x","kitch_sq_y"), axis=1)
+data_train["build_year_x"] = data_train.apply(lambda x: fillNA_by_area_median(x,"build_year_x","build_year_y"), axis=1)
+data_train["floor_x"] = data_train.apply(lambda x: fillNA_by_area_median(x,"floor_x","floor_y"), axis=1)
+
+
+# In[16]:
+
+import math
+#function to impute NA
+def fillNA_for_num_rooms(row,tofill, fromfill):
+    if pd.isnull(row[tofill]):
+        return math.floor(row["life_sq_x"]/row[fromfill])
+    else:
+        return row[tofill]
+data_train["num_room_x"] = data_train.apply(lambda x: fillNA_for_num_rooms(x,"num_room_x","area_wise_room_size"), axis=1)
+
+
+# In[17]:
+
+data_train = data_train.drop(["max_floor_x","state","hospital_beds_raion","material_x"],1)
+
+
+# In[25]:
+
+pd.set_option('display.float_format', lambda x: '%.3f' % x)
+data_train.describe().round(2)
+
+
+# In[22]:
+
+#count number of NA in each column
+NA_count=data_train.isnull().sum()
+NA_count=pd.DataFrame(NA_count,columns=['count']).sort_values(by="count",axis=0, 
+                                                                  ascending=False, inplace=False, kind='quicksort')
+print NA_count
+
+
+# In[21]:
+
+data_train = data_train.drop(["cafe_sum_500_min_price_avg","cafe_avg_price_500", "cafe_sum_500_max_price_avg",
+                             "office_sqm_500", "id", "ID_metro", "ID_railroad_station_walk", "ID_railroad_station_avto", 
+                              "ID_big_road1", "ID_big_road2", "ID_railroad_terminal","ID_bus_terminal"],1)
+
+
+# In[24]:
+
+#fill rest of the columns NA with median
+def fillNaWithMedian(columnList):
+    for i in columnList:
+        data_train[i]=data_train[i].fillna(data_train[i].median())
+        
+fillNA_withMedian_List=["cafe_sum_1000_max_price_avg","cafe_avg_price_1000","cafe_sum_1000_min_price_avg","preschool_quota",
+                        "school_quota","build_count_wood","build_count_after_1995","build_count_1971.1995",
+           "build_count_1946.1970","build_count_1921.1945","build_count_before_1920","raion_build_count_with_builddate_info",
+                        "build_count_frame", "build_count_mix", "build_count_slag","build_count_block","build_count_panel",
+                        "build_count_monolith","build_count_brick", "build_count_foam", "raion_build_count_with_material_info",
+                       "cafe_sum_1500_min_price_avg","cafe_avg_price_1500","cafe_sum_1500_max_price_avg","cafe_sum_2000_min_price_avg",
+                       "cafe_sum_2000_max_price_avg","cafe_avg_price_2000","cafe_sum_3000_min_price_avg","cafe_avg_price_3000",
+                       "cafe_sum_3000_max_price_avg","cafe_sum_5000_min_price_avg","cafe_sum_5000_max_price_avg","cafe_avg_price_5000",
+                       "prom_part_5000","metro_km_walk","metro_min_walk","railroad_station_walk_km","railroad_station_walk_min"]
+
+fillNaWithMedian(fillNA_withMedian_List)
+
+# #cafe_sum_1000_max_price_avg             4393
+# cafe_avg_price_1000                     4393
+# cafe_sum_1000_min_price_avg             4393
+# preschool_quota                         4366
+# school_quota                            4363
+# build_count_wood                        3169
+# build_count_after_1995                  3169
+# build_count_1971.1995                   3169
+# build_count_1946.1970                   3169
+# build_count_1921.1945                   3169
+# build_count_before_1920                 3169
+# raion_build_count_with_builddate_info   3169
+# build_count_frame                       3169
+# build_count_mix                         3169
+# build_count_slag                        3169
+# build_count_block                       3169
+# build_count_panel                       3169
+# build_count_monolith                    3169
+# build_count_brick                       3169
+# build_count_foam                        3169
+# raion_build_count_with_material_info    3169
+# cafe_sum_1500_min_price_avg             2578
+# cafe_avg_price_1500                     2578
+# cafe_sum_1500_max_price_avg             2578
+# cafe_sum_2000_min_price_avg             1056
+# cafe_sum_2000_max_price_avg             1056
+# cafe_avg_price_2000                     1056
+# cafe_sum_3000_min_price_avg              707
+# cafe_avg_price_3000                      707
+# cafe_sum_3000_max_price_avg              707
+# cafe_sum_5000_min_price_avg              220
+# cafe_sum_5000_max_price_avg              220
+# cafe_avg_price_5000                      220
+# prom_part_5000                           120
+# metro_km_walk                             22
+# metro_min_walk                            22
+# railroad_station_walk_km                  22
+# railroad_station_walk_min                 22
+
+
+# In[26]:
+
+#drop rows which have NA's
+cleaned_data=data_train.dropna()
+cleaned_data.describe().round(2)
+cleaned_data.shape
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[121]:
+
+# def lower_bound(dist):
+#     iqr = np.percentile(dist, 75) - np.percentile(dist, 25)
+#     return np.percentile(dist, 25)-(1.5*iqr)
+# def upper_bound(dist):
+#     iqr = np.percentile(dist, 75) - np.percentile(dist, 25)
+#     return np.percentile(dist, 75)+(1.5*iqr)
+
+
+# In[124]:
+
+data[data["full_sq"]<lower_bound(data["full_sq"])]["full_sq"]
+
+
+# In[ ]:
+
+(data[data["life_sq"].notnull()]["life_sq"]) 
+
+
+# In[ ]:
+
+
+
